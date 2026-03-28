@@ -1,0 +1,59 @@
+{
+    "name": "ibrahim-kaya/imageman",
+    "description": "Professional Laravel image upload, WebP/AVIF conversion, multi-size variants and multi-disk management package",
+	"version": "1.0.0",
+    "keywords": ["ibrahim-kaya", "laravel", "image", "upload", "webp", "avif", "resize", "watermark", "s3", "cdn"],
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "İbrahim Kaya",
+            "email": "me@ibrahimkaya.dev",
+			"homepage": "https://ibrahimkaya.dev",
+            "role": "Laravel Developer"
+        }
+    ],
+    "require": {
+        "php": ">=8.0",
+        "illuminate/support": "^9.0|^10.0|^11.0|^12.0",
+        "illuminate/database": "^9.0|^10.0|^11.0|^12.0",
+        "illuminate/filesystem": "^9.0|^10.0|^11.0|^12.0",
+        "illuminate/queue": "^9.0|^10.0|^11.0|^12.0",
+        "illuminate/http": "^9.0|^10.0|^11.0|^12.0",
+        "intervention/image": "^3.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^8.0|^9.0",
+        "phpunit/phpunit": "^10.0",
+        "mockery/mockery": "^1.6"
+    },
+    "suggest": {
+        "filament/filament": "For Filament v3 admin panel integration (^3.0)",
+        "laravel/nova": "For Laravel Nova admin panel integration (^4.0)"
+    },
+    "autoload": {
+        "psr-4": {
+            "IbrahimKaya\\ImageMan\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "IbrahimKaya\\ImageMan\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "IbrahimKaya\\ImageMan\\ImageManServiceProvider"
+            ],
+            "aliases": {
+                "ImageMan": "IbrahimKaya\\ImageMan\\ImageManFacade"
+            }
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
