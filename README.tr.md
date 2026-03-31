@@ -174,10 +174,17 @@ try {
 | `->for($model)` | Eloquent modelle ilişkilendir |
 | `->meta(['alt' => '…'])` | Meta veri ekle (alt metin, başlık vb.) |
 | `->format('avif')` | Bu yükleme için çıktı formatını geçersiz kıl |
+| `->filename('fotograf')` | Özel dosya adı (slugify edilir, uzantı gerekmez) |
+| `->inDirectory('urunler')` | Özel bir alt klasöre kaydet |
+| `->noUuid()` | UUID klasörünü kaldır, sabit ve öngörülebilir yol oluştur |
 | `->watermark()` | Filigranı etkinleştir |
 | `->noWatermark()` | Bu yükleme için filigranı devre dışı bırak |
+| `->watermarkImage($path)` | Belirli bir görsel dosyasını filigran olarak kullan |
+| `->watermarkText('© 2024')` | Metin filigranı kullan |
 | `->withLqip()` | LQIP üretimini etkinleştir |
 | `->withoutLqip()` | LQIP üretimini devre dışı bırak |
+| `->replaceExisting()` | Kaydettikten sonra koleksiyondaki eski görselleri sil |
+| `->keepExisting()` | Koleksiyon tekil olsa bile eski görselleri koru |
 | `->maxSize(2048)` | Maksimum dosya boyutu (KB) |
 | `->minWidth(400)` | Minimum genişlik (px) |
 | `->maxWidth(2000)` | Maksimum genişlik (px) |
@@ -232,6 +239,71 @@ ImageMan::disk('s3')->upload($file)->save();
 ```
 
 Hedef diskin `config/filesystems.php` dosyasında tanımlı olduğundan emin olun.
+
+---
+
+## Özel Dosya Adı ve Klasör
+
+### Özel dosya adı
+
+Kaydedilen dosyanın adını belirleyin. Uzantıyı yazmaya gerek yok — çıktı formatına göre otomatik eklenir:
+
+```php
+$gorsel = ImageMan::upload($dosya)
+    ->filename('urun-hero')
+    ->save();
+// → images/{uuid}/urun-hero.webp
+// → images/{uuid}/urun-hero_thumbnail.webp
+```
+
+Türkçe karakterler ve boşluklar otomatik olarak slug'a çevrilir:
+
+```php
+->filename('Ürün Fotoğrafı')  // → urun-fotografı
+```
+
+### Özel klasör
+
+Görselleri temel yolu değiştirmeden özel bir alt klasöre gruplayın:
+
+```php
+$gorsel = ImageMan::upload($dosya)
+    ->inDirectory('urunler/telefonlar')
+    ->filename('iphone-16')
+    ->save();
+// → images/urunler/telefonlar/{uuid}/iphone-16.webp
+```
+
+Her klasör segmenti otomatik olarak slugify edilir:
+
+```php
+->inDirectory('Ürün Görselleri')  // → urun-gorselleri
+```
+
+### `->noUuid()` ile sabit yol
+
+Varsayılan olarak her yükleme çakışmaları önlemek için UUID klasörü altında saklanır. `->noUuid()` çağrısıyla bu klasörü kaldırabilir, her zaman aynı URL'de kalan sabit bir yol elde edebilirsiniz — profil fotoğrafı ve kapak görseli gibi senaryolar için idealdir:
+
+```php
+$gorsel = ImageMan::upload($dosya)
+    ->inDirectory('kullanicilar/' . $kullanici->id)
+    ->filename('avatar')
+    ->noUuid()
+    ->save();
+// → images/kullanicilar/42/avatar.webp  (her zaman aynı URL)
+```
+
+> **Not:** `noUuid()` kullanıldığında, aynı yola tekrar yükleme yapılırsa mevcut dosya **sessizce üzerine yazılır**. Eski veritabanı kaydını da temizlemek için `->replaceExisting()` veya singleton koleksiyonlarla birlikte kullanın.
+
+### Yol kombinasyonları
+
+| `inDirectory()` | `noUuid()` | `filename()` | Sonuç |
+|---|---|---|---|
+| ✗ | ✗ | ✗ | `images/{uuid}/{uuid}.webp` |
+| `'urunler'` | ✗ | ✗ | `images/urunler/{uuid}/{uuid}.webp` |
+| `'urunler'` | ✗ | `'iphone'` | `images/urunler/{uuid}/iphone.webp` |
+| `'kullanicilar/42'` | ✓ | `'avatar'` | `images/kullanicilar/42/avatar.webp` |
+| `'urunler'` | ✓ | ✗ | `images/urunler/{uuid}.webp` |
 
 ---
 

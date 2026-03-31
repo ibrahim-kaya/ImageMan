@@ -174,10 +174,17 @@ All methods return `$this` (except `save()` which returns an `Image` model).
 | `->for($model)` | Associate with an Eloquent model |
 | `->meta(['alt' => '…'])` | Attach metadata (alt text, title, etc.) |
 | `->format('avif')` | Override output format for this upload |
+| `->filename('my-photo')` | Custom filename stem (slugified, no extension needed) |
+| `->inDirectory('products')` | Store inside a custom subdirectory |
+| `->noUuid()` | Omit UUID folder for a deterministic, stable path |
 | `->watermark()` | Enable watermark (overrides config) |
 | `->noWatermark()` | Disable watermark for this upload |
+| `->watermarkImage($path)` | Use a specific image file as watermark |
+| `->watermarkText('© 2024')` | Use a text string as watermark |
 | `->withLqip()` | Enable LQIP generation |
 | `->withoutLqip()` | Disable LQIP generation |
+| `->replaceExisting()` | Delete old images in the collection after saving |
+| `->keepExisting()` | Keep old images even if collection is singleton |
 | `->maxSize(2048)` | Max file size in KB |
 | `->minWidth(400)` | Minimum width in pixels |
 | `->maxWidth(2000)` | Maximum width in pixels |
@@ -227,6 +234,71 @@ ImageMan::disk('s3')->upload($file)->save();
 ```
 
 Make sure the target disk is configured in `config/filesystems.php`.
+
+---
+
+## Custom Filename & Directory
+
+### Custom filename
+
+Set a custom filename stem for the stored file. The extension is always determined automatically from the output format — do not include it:
+
+```php
+$image = ImageMan::upload($file)
+    ->filename('product-hero')
+    ->save();
+// → images/{uuid}/product-hero.webp
+// → images/{uuid}/product-hero_thumbnail.webp
+```
+
+Turkish characters and spaces are automatically slugified:
+
+```php
+->filename('Ürün Fotoğrafı')  // → urun-fotografı
+```
+
+### Custom directory
+
+Group images into a subdirectory without changing the base path config:
+
+```php
+$image = ImageMan::upload($file)
+    ->inDirectory('products/phones')
+    ->filename('iphone-16')
+    ->save();
+// → images/products/phones/{uuid}/iphone-16.webp
+```
+
+Each directory segment is slugified automatically:
+
+```php
+->inDirectory('Ürün Görselleri')  // → urun-gorselleri
+```
+
+### Deterministic paths with `->noUuid()`
+
+By default every upload gets its own UUID folder to prevent collisions. Call `->noUuid()` to omit it and get a fully stable, predictable URL — ideal for profile photos and cover images:
+
+```php
+$image = ImageMan::upload($file)
+    ->inDirectory('users/' . $user->id)
+    ->filename('avatar')
+    ->noUuid()
+    ->save();
+// → images/users/42/avatar.webp  (always the same URL)
+```
+
+> **Note:** When `noUuid()` is active, uploading to the same path again **silently overwrites** the existing file. Combine with `->replaceExisting()` (or singleton collections) to also clean up the old database record.
+
+### Path composition table
+
+| `inDirectory()` | `noUuid()` | `filename()` | Result |
+|---|---|---|---|
+| ✗ | ✗ | ✗ | `images/{uuid}/{uuid}.webp` |
+| `'products'` | ✗ | ✗ | `images/products/{uuid}/{uuid}.webp` |
+| `'products'` | ✗ | `'iphone'` | `images/products/{uuid}/iphone.webp` |
+| `'users/42'` | ✓ | `'avatar'` | `images/users/42/avatar.webp` |
+| `'products'` | ✓ | ✗ | `images/products/{uuid}.webp` |
 
 ---
 
