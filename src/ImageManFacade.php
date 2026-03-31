@@ -11,6 +11,9 @@ use Illuminate\Support\Facades\Facade;
  * service container under the key 'imageman'.
  *
  * @method static \IbrahimKaya\ImageMan\ImageUploader upload(\Illuminate\Http\UploadedFile $file)
+ * @method static \IbrahimKaya\ImageMan\ImageUploader filename(string $name)
+ * @method static \IbrahimKaya\ImageMan\ImageUploader inDirectory(string $path)
+ * @method static \IbrahimKaya\ImageMan\ImageUploader noUuid()
  * @method static \IbrahimKaya\ImageMan\ImageUploader uploadFromUrl(string $url, int $timeoutSeconds = 30)
  * @method static \IbrahimKaya\ImageMan\ImageManager  disk(string $disk)
  * @method static \IbrahimKaya\ImageMan\ImageUploader replaceExisting(bool $replace = true)

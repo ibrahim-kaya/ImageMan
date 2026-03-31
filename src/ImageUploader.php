@@ -44,6 +44,27 @@ class ImageUploader
     protected bool    $generateLqip;
 
     /**
+     * Optional custom filename stem (without extension) for the stored file.
+     * When null, a UUID is used as the stem (default behaviour).
+     * The extension is always derived from the MIME type after conversion.
+     */
+    protected ?string $filename = null;
+
+    /**
+     * Optional subdirectory appended between the base path and the UUID folder.
+     * Set via ->inDirectory(). Each path segment is slugified for filesystem safety.
+     * Example: ->inDirectory('products/phones') → images/products/phones/{uuid}/file.webp
+     */
+    protected ?string $customDirectory = null;
+
+    /**
+     * When false, the UUID subfolder is omitted from the storage path.
+     * Use with ->inDirectory() and ->filename() for fully deterministic paths.
+     * If the same path is uploaded to again, the existing file is overwritten.
+     */
+    protected bool $useUuid = true;
+
+    /**
      * Per-upload watermark overrides.
      * Keys mirror the config('imageman.watermark') sub-array.
      * Only the keys present in this array override the global config;
@@ -272,6 +293,102 @@ class ImageUploader
     }
 
     /**
+     * Set a custom filename stem for the stored image files.
+     *
+     * The stem is the filename without extension. The correct extension
+     * (webp, avif, jpg, etc.) is always appended automatically based on
+     * the output format after conversion — you do not need to include it.
+     *
+     * The value is slugified via Str::slug() to ensure filesystem safety,
+     * so spaces and special characters are automatically converted:
+     *   'Ürün Fotoğrafı' → 'urun-fotografi'
+     *
+     * The containing directory still uses a UUID so files from different
+     * uploads with the same custom name never collide:
+     *   images/{uuid}/my-product.webp
+     *   images/{uuid}/my-product_thumbnail.webp
+     *
+     * If not called, the UUID is used as the stem (default behaviour).
+     *
+     * @param  string $name  Desired filename without extension.
+     *                       e.g. 'product-photo', 'user-avatar', 'banner-2024'
+     *
+     * Example:
+     *   ImageMan::upload($file)->filename('urun-fotografi')->save();
+     *   // → images/{uuid}/urun-fotografi.webp
+     *   // → images/{uuid}/urun-fotografi_thumbnail.webp
+     */
+    public function filename(string $name): static
+    {
+        // Strip any extension the user may have included (e.g. 'photo.jpg' → 'photo').
+        $nameWithoutExt = pathinfo($name, PATHINFO_FILENAME);
+
+        // Slugify for filesystem safety ('Ürün Fotoğrafı' → 'urun-fotografi').
+        $this->filename = Str::slug($nameWithoutExt) ?: Str::uuid();
+
+        return $this;
+    }
+
+    /**
+     * Store the image inside a custom subdirectory on the disk.
+     *
+     * The path is appended between the base path (config: imageman.path) and
+     * the UUID folder. Each segment is individually slugified for filesystem
+     * safety, so slashes are preserved but special characters are cleaned up.
+     *
+     *   'Ürün Görselleri'  → 'urun-gorselleri'
+     *   'products/phones'  → 'products/phones'  (slash preserved)
+     *
+     * Combined with the UUID folder (default behaviour):
+     *   ->inDirectory('products') → images/products/{uuid}/file.webp
+     *
+     * Combined with ->noUuid() for a fully deterministic path:
+     *   ->inDirectory('users/42')->filename('avatar')->noUuid()
+     *   → images/users/42/avatar.webp
+     *
+     * @param  string $path  One or more slash-separated directory segments.
+     */
+    public function inDirectory(string $path): static
+    {
+        // Slugify each path segment individually, preserving the slash separators.
+        $slugged = implode('/', array_map(
+            fn (string $segment) => Str::slug($segment),
+            explode('/', trim($path, '/')),
+        ));
+
+        $this->customDirectory = $slugged ?: null;
+
+        return $this;
+    }
+
+    /**
+     * Omit the UUID subfolder from the storage path.
+     *
+     * By default every upload is placed inside a UUID-named folder to prevent
+     * filename collisions. Calling noUuid() removes this folder so the file
+     * is stored directly inside the base path (+ any inDirectory() segment).
+     *
+     * When noUuid() is active and a file already exists at the target path,
+     * it is silently overwritten — this is intentional for cases like profile
+     * photos or cover images that must always live at the same URL.
+     *
+     * Recommended usage: combine with ->inDirectory() and ->filename() to get
+     * a fully predictable, stable URL:
+     *
+     *   ImageMan::upload($file)
+     *       ->inDirectory('users/' . $user->id)
+     *       ->filename('avatar')
+     *       ->noUuid()
+     *       ->save();
+     *   // → images/users/42/avatar.webp  (always the same path)
+     */
+    public function noUuid(): static
+    {
+        $this->useUuid = false;
+        return $this;
+    }
+
+    /**
      * Enable LQIP generation for this upload.
      */
     public function withLqip(bool $generate = true): static
@@ -453,17 +570,26 @@ class ImageUploader
         // Run the image manipulation pipeline.
         $processed = $this->manipulator->process($this->file, $mergedConfig);
 
-        // Generate a UUID-based directory to keep files isolated.
+        // Build the storage directory path from configured components:
+        //   {base_path} / {custom_directory?} / {uuid?}
+        // The UUID segment is included by default to prevent filename collisions.
+        // It can be omitted via ->noUuid() when a deterministic path is desired.
         $uuid      = (string) Str::uuid();
-        $directory = trim($this->config['path'] ?? 'images', '/') . '/' . $uuid;
+        $basePath  = trim($this->config['path'] ?? 'images', '/');
+        $uuidPart  = $this->useUuid ? $uuid : null;
+        $parts     = array_filter([$basePath, $this->customDirectory, $uuidPart]);
+        $directory = implode('/', $parts);
 
         $disk = Storage::disk($this->disk);
 
         // Determine the output file extension from the MIME type.
         $ext = $this->extensionForMime($processed->mimeType);
 
+        // Use the custom filename stem when provided, otherwise fall back to UUID.
+        $stem = $this->filename ?? $uuid;
+
         // --- Store main file ---
-        $mainFilename = $uuid . '.' . $ext;
+        $mainFilename = $stem . '.' . $ext;
         $disk->put(
             $directory . '/' . $mainFilename,
             file_get_contents($processed->mainPath),
@@ -473,7 +599,7 @@ class ImageUploader
         $variantsData = [];
         foreach ($processed->variants as $name => $variant) {
             /** @var VariantResult $variant */
-            $variantFilename = $uuid . '_' . $name . '.' . $ext;
+            $variantFilename = $stem . '_' . $name . '.' . $ext;
             $variantPath     = $directory . '/' . $variantFilename;
 
             $disk->put($variantPath, file_get_contents($variant->tempPath));
@@ -489,7 +615,7 @@ class ImageUploader
         // --- Store original file (if kept) ---
         if ($processed->hasOriginal()) {
             $origExt      = strtolower($this->file->getClientOriginalExtension() ?: 'jpg');
-            $origFilename = $uuid . '_original.' . $origExt;
+            $origFilename = $stem . '_original.' . $origExt;
             $disk->put(
                 $directory . '/' . $origFilename,
                 file_get_contents($processed->originalPath),
@@ -589,6 +715,9 @@ class ImageUploader
             'keep_original'   => $this->keepOriginal,
             'generate_lqip'   => $this->generateLqip,
             'requested_sizes' => $this->sizes ?? $this->config['default_sizes'] ?? [],
+            'filename_stem'    => $this->filename,        // null = use UUID (default)
+            'custom_directory' => $this->customDirectory, // null = no subdirectory
+            'use_uuid'         => $this->useUuid,         // false = omit UUID folder
             'watermark'       => array_merge(
                 $this->config['watermark'] ?? [],
                 $this->watermarkOverrides,     // per-upload path / text / position overrides

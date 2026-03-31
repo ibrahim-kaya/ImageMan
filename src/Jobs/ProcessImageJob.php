@@ -74,20 +74,30 @@ class ProcessImageJob implements ShouldQueue
         // Run the processing pipeline.
         $processed = $manipulator->process($uploadedFile, $this->config);
 
+        // Build the storage directory path using the same logic as ImageUploader:
+        //   {base_path} / {custom_directory?} / {uuid?}
         $uuid      = (string) Str::uuid();
-        $directory = trim($this->config['path'] ?? 'images', '/') . '/' . $uuid;
-        $disk      = Storage::disk($this->config['disk'] ?? 'local');
-        $ext       = $this->extensionForMime($processed->mimeType);
+        $basePath  = trim($this->config['path'] ?? 'images', '/');
+        $subDir    = $this->config['custom_directory'] ?? null;
+        $uuidPart  = ($this->config['use_uuid'] ?? true) ? $uuid : null;
+        $parts     = array_filter([$basePath, $subDir, $uuidPart]);
+        $directory = implode('/', $parts);
+
+        $disk = Storage::disk($this->config['disk'] ?? 'local');
+        $ext  = $this->extensionForMime($processed->mimeType);
+
+        // Use custom filename stem when provided, otherwise fall back to UUID.
+        $stem = $this->config['filename_stem'] ?? $uuid;
 
         // Store main file.
-        $mainFilename = $uuid . '.' . $ext;
+        $mainFilename = $stem . '.' . $ext;
         $disk->put($directory . '/' . $mainFilename, file_get_contents($processed->mainPath));
 
         // Store variants.
         $variantsData = [];
         foreach ($processed->variants as $name => $variant) {
             /** @var VariantResult $variant */
-            $variantFilename = $uuid . '_' . $name . '.' . $ext;
+            $variantFilename = $stem . '_' . $name . '.' . $ext;
             $variantPath     = $directory . '/' . $variantFilename;
 
             $disk->put($variantPath, file_get_contents($variant->tempPath));
