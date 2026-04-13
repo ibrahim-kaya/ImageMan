@@ -676,6 +676,150 @@ When queue is enabled, `save()` inserts the DB record immediately (so you get an
 
 ---
 
+## Chunked Uploads
+
+Upload files larger than PHP's `upload_max_filesize` limit by splitting them into small chunks in the browser and reassembling them on the server. All chunks are fed through the standard ImageUploader pipeline (WebP/AVIF conversion, size variants, watermark, LQIP, queue, etc.) once assembly is complete.
+
+### Enable chunk routes
+
+Chunk routes are enabled by default (`config('imageman.chunks.enabled') = true`). They are always loaded when chunk support is on — regardless of the `register_routes` setting.
+
+If you want to add authentication middleware to chunk endpoints:
+
+```php
+// config/imageman.php
+'chunks' => [
+    'enabled'    => true,
+    'middleware' => ['auth:sanctum'],
+    // ...
+],
+```
+
+### JavaScript helper
+
+Publish the bundled `ImageManUploader` class to your `public/` directory:
+
+```bash
+php artisan vendor:publish --tag=imageman-js
+# → public/vendor/imageman/imageman-uploader.js
+```
+
+The file is a UMD bundle — it works as a plain `<script>` tag, an ES module import, or a CommonJS `require()`.
+
+#### Script tag
+
+```html
+<script src="/vendor/imageman/imageman-uploader.js"></script>
+<script>
+const uploader = new ImageManUploader({
+    endpoint:    '/imageman/chunks',
+    collection:  'gallery',
+    chunkSize:   2 * 1024 * 1024,   // 2 MB per chunk (optional, server returns hint)
+    concurrency: 3,                  // parallel chunk uploads
+    headers: {
+        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+    },
+    onProgress: (pct) => console.log(pct + '%'),
+    onComplete: (uploadId, imageId) => console.log('Done! image_id:', imageId),
+    onError:    (err)  => console.error('Upload failed:', err),
+});
+
+document.querySelector('input[type=file]').addEventListener('change', (e) => {
+    uploader.upload(e.target.files[0]);
+});
+</script>
+```
+
+#### ES module (Vite / webpack)
+
+```js
+import ImageManUploader from '/vendor/imageman/imageman-uploader.js';
+
+const uploader = new ImageManUploader({ endpoint: '/imageman/chunks', ... });
+```
+
+#### CommonJS (Node / older bundlers)
+
+```js
+const ImageManUploader = require('./public/vendor/imageman/imageman-uploader');
+```
+
+### Resumable uploads
+
+Store the `upload_id` returned at initiation (e.g. in `localStorage`) so that if the page is refreshed or the browser closes mid-upload, the session can be resumed — only the missing chunks are re-sent:
+
+```js
+// Save upload_id on initiation (onProgress / onComplete callbacks fire normally)
+uploader.upload(file).then(() => localStorage.removeItem('uploadId'));
+// The upload_id is available after initiation via the server response.
+// A simple approach: initiate manually, save the ID, then use resume():
+uploader.resume(savedUploadId, file);
+```
+
+### Abort an upload
+
+```js
+uploader.abort(); // Sends DELETE /imageman/chunks/{id} and cleans up disk files
+```
+
+### HTTP API reference
+
+| Method   | URL                                  | Description                          |
+|----------|--------------------------------------|--------------------------------------|
+| `POST`   | `/imageman/chunks/initiate`          | Start a new session, get `upload_id` |
+| `POST`   | `/imageman/chunks/{id}`              | Upload one chunk (multipart)         |
+| `GET`    | `/imageman/chunks/{id}/status`       | Poll assembly status                 |
+| `DELETE` | `/imageman/chunks/{id}`              | Abort and delete all chunk files     |
+
+**Initiate request body** (JSON or form-data):
+
+| Field           | Type    | Required | Description                                |
+|-----------------|---------|----------|--------------------------------------------|
+| `filename`      | string  | yes      | Original file name                         |
+| `mime_type`     | string  | yes      | MIME type (must be in `allowed_mimes`)     |
+| `total_size`    | integer | yes      | Full file size in bytes                    |
+| `total_chunks`  | integer | yes      | Number of chunks the file is split into    |
+| `collection`    | string  | no       | Target collection (default: `"default"`)   |
+| `disk`          | string  | no       | Target storage disk                        |
+| `meta`          | object  | no       | Arbitrary metadata                         |
+| `imageable_type`| string  | no       | Eloquent model FQCN for polymorphic link   |
+| `imageable_id`  | integer | no       | Eloquent model primary key                 |
+
+**Status response** fields: `status`, `received_chunks`, `missing_chunks`, `total_chunks`, `image_id`, `error_message`.
+
+Status values: `uploading` → `assembling` → `processing` (queued) → `complete` / `failed`.
+
+### Queue assembly
+
+Set `assemble_on_queue` in config (or inherit from `imageman.queue`) to run chunk assembly in the background:
+
+```php
+'chunks' => [
+    'assemble_on_queue' => true,  // dispatches AssembleChunksJob
+],
+```
+
+Poll `GET /imageman/chunks/{id}/status` until `status === 'complete'` — the JS helper does this automatically.
+
+### Clean stale sessions
+
+Chunk files are stored under `storage/app/imageman_chunks/{upload_id}/`. Use the included Artisan command to remove sessions that were abandoned:
+
+```bash
+php artisan imageman:clean-chunks                 # Remove sessions inactive > 24h
+php artisan imageman:clean-chunks --dry-run       # Preview only
+php artisan imageman:clean-chunks --older-than=48 # Custom TTL in hours
+php artisan imageman:clean-chunks --status=failed # Only failed sessions
+```
+
+Schedule it in `App\Console\Kernel`:
+
+```php
+$schedule->command('imageman:clean-chunks')->daily()->withoutOverlapping();
+```
+
+---
+
 ## Artisan Commands
 
 ### Regenerate variants

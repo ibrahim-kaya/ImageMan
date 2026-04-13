@@ -680,6 +680,146 @@ Kuyruk etkin olduğunda `save()` hemen DB kaydı oluşturur ve `ProcessImageJob`
 
 ---
 
+## Parçalı Yükleme (Chunk Upload)
+
+PHP'nin `upload_max_filesize` sınırından büyük dosyaları, tarayıcıda küçük parçalara bölüp sunucuya göndererek yükleyin. Tüm parçalar birleştirildikten sonra standart ImageUploader pipeline'ından geçer (WebP/AVIF dönüşümü, boyut varyantları, watermark, LQIP, kuyruk vb.).
+
+### Chunk rotalarını etkinleştirme
+
+Chunk rotaları varsayılan olarak etkindir (`config('imageman.chunks.enabled') = true`). Chunk desteği açıkken her zaman yüklenir — `register_routes` ayarından bağımsızdır.
+
+Chunk endpoint'lerine kimlik doğrulama middleware eklemek için:
+
+```php
+// config/imageman.php
+'chunks' => [
+    'enabled'    => true,
+    'middleware' => ['auth:sanctum'],
+    // ...
+],
+```
+
+### JavaScript Yardımcısı
+
+Paketlenmiş `ImageManUploader` sınıfını `public/` dizinine yayınlayın:
+
+```bash
+php artisan vendor:publish --tag=imageman-js
+# → public/vendor/imageman/imageman-uploader.js
+```
+
+Dosya UMD formatındadır — düz `<script>` etiketi, ES modülü veya CommonJS `require()` olarak kullanılabilir.
+
+#### Script etiketi
+
+```html
+<script src="/vendor/imageman/imageman-uploader.js"></script>
+<script>
+const uploader = new ImageManUploader({
+    endpoint:    '/imageman/chunks',
+    collection:  'galeri',
+    chunkSize:   2 * 1024 * 1024,   // Parça başına 2 MB (opsiyonel)
+    concurrency: 3,                  // Paralel parça yükleme sayısı
+    headers: {
+        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+    },
+    onProgress: (pct) => console.log(pct + '%'),
+    onComplete: (uploadId, imageId) => console.log('Tamamlandı! image_id:', imageId),
+    onError:    (err)  => console.error('Yükleme başarısız:', err),
+});
+
+document.querySelector('input[type=file]').addEventListener('change', (e) => {
+    uploader.upload(e.target.files[0]);
+});
+</script>
+```
+
+#### ES modülü (Vite / webpack)
+
+```js
+import ImageManUploader from '/vendor/imageman/imageman-uploader.js';
+
+const uploader = new ImageManUploader({ endpoint: '/imageman/chunks', ... });
+```
+
+#### CommonJS (Node / eski paket yöneticileri)
+
+```js
+const ImageManUploader = require('./public/vendor/imageman/imageman-uploader');
+```
+
+### Kaldığı yerden devam etme (Resume)
+
+Yükleme başlarken dönen `upload_id`'yi `localStorage`'a kaydedin. Sayfa yenilense veya tarayıcı kapansa bile eksik parçalar yeniden gönderilir:
+
+```js
+uploader.resume(savedUploadId, file);
+```
+
+### Yüklemeyi iptal etme
+
+```js
+uploader.abort(); // DELETE /imageman/chunks/{id} gönderir ve dosyaları temizler
+```
+
+### HTTP API referansı
+
+| Metod    | URL                                  | Açıklama                                |
+|----------|--------------------------------------|-----------------------------------------|
+| `POST`   | `/imageman/chunks/initiate`          | Yeni oturum başlat, `upload_id` al      |
+| `POST`   | `/imageman/chunks/{id}`              | Tek bir parça yükle (multipart)         |
+| `GET`    | `/imageman/chunks/{id}/status`       | Birleştirme durumunu sorgula            |
+| `DELETE` | `/imageman/chunks/{id}`              | İptal et ve parça dosyalarını sil       |
+
+**Initiate istek gövdesi** (JSON veya form-data):
+
+| Alan            | Tip     | Zorunlu | Açıklama                                              |
+|-----------------|---------|---------|-------------------------------------------------------|
+| `filename`      | string  | evet    | Orijinal dosya adı                                    |
+| `mime_type`     | string  | evet    | MIME tipi (`allowed_mimes` listesinde olmalı)         |
+| `total_size`    | integer | evet    | Toplam dosya boyutu (byte)                            |
+| `total_chunks`  | integer | evet    | Dosyanın bölündüğü parça sayısı                       |
+| `collection`    | string  | hayır   | Hedef koleksiyon (varsayılan: `"default"`)            |
+| `disk`          | string  | hayır   | Hedef depolama diski                                  |
+| `meta`          | object  | hayır   | İsteğe bağlı üst veri                                |
+| `imageable_type`| string  | hayır   | Polimorfik bağlantı için Eloquent model FQCN          |
+| `imageable_id`  | integer | hayır   | Eloquent model birincil anahtar                       |
+
+**Durum yanıt alanları:** `status`, `received_chunks`, `missing_chunks`, `total_chunks`, `image_id`, `error_message`.
+
+Durum değerleri: `uploading` → `assembling` → `processing` (kuyruk) → `complete` / `failed`.
+
+### Kuyrukta birleştirme
+
+Config'de `assemble_on_queue` ayarını yapın (veya `imageman.queue`'dan miras alın):
+
+```php
+'chunks' => [
+    'assemble_on_queue' => true,  // AssembleChunksJob kuyruğa atılır
+],
+```
+
+JS yardımcısı `status === 'complete'` olana kadar otomatik olarak sorgular.
+
+### Yarıda kalan oturumları temizleme
+
+Parça dosyaları `storage/app/imageman_chunks/{upload_id}/` altında saklanır. Terk edilmiş oturumları temizlemek için:
+
+```bash
+php artisan imageman:clean-chunks                 # 24 saatten eski oturumları sil
+php artisan imageman:clean-chunks --dry-run       # Sadece önizleme
+php artisan imageman:clean-chunks --older-than=48 # Özel TTL (saat)
+php artisan imageman:clean-chunks --status=failed # Sadece başarısız oturumlar
+```
+
+`App\Console\Kernel`'de günlük çalıştırın:
+
+```php
+$schedule->command('imageman:clean-chunks')->daily()->withoutOverlapping();
+```
+
+---
+
 ## Artisan Komutları
 
 ### Varyantları yeniden oluştur

@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use IbrahimKaya\ImageMan\Http\Controllers\ChunkUploadController;
 use IbrahimKaya\ImageMan\Http\Controllers\ImageController;
 
 /*
@@ -39,3 +40,31 @@ Route::prefix($prefix)
             ->name('sign')
             ->where('id', '[0-9]+');
     });
+
+// --- Chunked Upload Routes ---
+// Registered separately so they can carry their own middleware stack defined
+// in config('imageman.chunks.middleware'), independent of the image-proxy routes.
+if (config('imageman.chunks.enabled', true)) {
+    $chunkMiddleware = config('imageman.chunks.middleware', []);
+
+    Route::prefix($prefix . '/chunks')
+        ->middleware($chunkMiddleware)
+        ->name('imageman.chunks.')
+        ->group(function () {
+            // Initiate a new chunked upload session.
+            Route::post('/initiate', [ChunkUploadController::class, 'initiate'])
+                ->name('initiate');
+
+            // Upload a single chunk.
+            Route::post('/{uploadId}', [ChunkUploadController::class, 'upload'])
+                ->name('upload');
+
+            // Poll the assembly status.
+            Route::get('/{uploadId}/status', [ChunkUploadController::class, 'status'])
+                ->name('status');
+
+            // Abort and clean up the session.
+            Route::delete('/{uploadId}', [ChunkUploadController::class, 'abort'])
+                ->name('abort');
+        });
+}

@@ -1,7 +1,7 @@
 {
     "name": "ibrahim-kaya/imageman",
     "description": "Professional Laravel image upload, WebP/AVIF conversion, multi-size variants and multi-disk management package",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "keywords": ["ibrahim-kaya", "laravel", "image", "upload", "webp", "avif", "resize", "watermark", "s3", "cdn"],
     "type": "library",
     "license": "MIT",

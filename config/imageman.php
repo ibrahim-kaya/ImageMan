@@ -531,4 +531,69 @@ return [
     */
     'srcset_sizes' => ['thumbnail', 'medium', 'large'],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Chunked Upload
+    |--------------------------------------------------------------------------
+    |
+    | ImageMan supports resumable, browser-side chunked uploads via a built-in
+    | HTTP API. This allows files larger than PHP's upload_max_filesize limit
+    | to be uploaded reliably without changing server configuration.
+    |
+    | The browser splits the file into fixed-size chunks and POSTs them one by
+    | one (or in parallel). The server reassembles them and feeds the result
+    | through the standard ImageUploader pipeline (WebP/AVIF conversion, size
+    | variants, watermarking, LQIP, queue, etc.).
+    |
+    | A vanilla JS helper class (ImageManUploader) is included and can be
+    | published with: php artisan vendor:publish --tag=imageman-js
+    |
+    | 'enabled'           → Master switch. Set to false to disable chunk endpoints.
+    |
+    | 'chunk_size'        → Recommended chunk size returned to the client at
+    |                       session initiation, in bytes. The client is free to
+    |                       use a different size; this is only a hint.
+    |                       Default: 2 MB. Env: IMAGEMAN_CHUNK_SIZE.
+    |
+    | 'max_chunk_size'    → Hard upper limit enforced server-side per individual
+    |                       chunk. Requests exceeding this are rejected with 422.
+    |                       Default: 5 MB.
+    |
+    | 'max_chunks'        → Maximum number of chunks per upload session.
+    |                       Default: 500 (500 × 2 MB = ~1 GB).
+    |
+    | 'max_total_size'    → Maximum assembled file size in bytes. The client
+    |                       reports the full file size at initiation; requests
+    |                       exceeding this limit are rejected with 422.
+    |                       Default: 512 MB.
+    |
+    | 'session_ttl'       → Inactivity threshold in seconds after which a session
+    |                       is considered stale and eligible for cleanup by the
+    |                       imageman:clean-chunks Artisan command.
+    |                       Default: 86400 (24 hours).
+    |
+    | 'middleware'        → Middleware applied exclusively to the chunk upload
+    |                       routes. Useful for adding auth guards (e.g. 'auth:api')
+    |                       without affecting the image-proxy routes.
+    |                       Default: [] (no extra middleware).
+    |
+    | 'assemble_on_queue' → When true, chunk assembly (merging .part files and
+    |                       running the ImageUploader pipeline) is dispatched as
+    |                       a queued job (AssembleChunksJob) rather than running
+    |                       synchronously in the upload request.
+    |                       null = inherit the global 'queue' config value.
+    |                       Default: null.
+    |
+    */
+    'chunks' => [
+        'enabled'           => true,
+        'chunk_size'        => env('IMAGEMAN_CHUNK_SIZE', 2 * 1024 * 1024),
+        'max_chunk_size'    => 5 * 1024 * 1024,
+        'max_chunks'        => 500,
+        'max_total_size'    => 512 * 1024 * 1024,
+        'session_ttl'       => 86400,
+        'middleware'        => [],
+        'assemble_on_queue' => null,
+    ],
+
 ];

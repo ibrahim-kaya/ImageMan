@@ -3,7 +3,10 @@
 namespace IbrahimKaya\ImageMan;
 
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
+use IbrahimKaya\ImageMan\Chunk\ChunkAssembler;
+use IbrahimKaya\ImageMan\Console\CleanChunksCommand;
 use IbrahimKaya\ImageMan\Console\CleanOrphanedImagesCommand;
 use IbrahimKaya\ImageMan\Console\ConvertToWebpCommand;
 use IbrahimKaya\ImageMan\Console\RegenerateVariantsCommand;
@@ -13,6 +16,8 @@ use IbrahimKaya\ImageMan\Drivers\Contracts\UrlGeneratorContract;
 use IbrahimKaya\ImageMan\Drivers\DefaultUrlGenerator;
 use IbrahimKaya\ImageMan\Drivers\ImageKitUrlGenerator;
 use IbrahimKaya\ImageMan\Drivers\ImgixUrlGenerator;
+use IbrahimKaya\ImageMan\Events\ImageProcessed;
+use IbrahimKaya\ImageMan\Models\ChunkSession;
 use IbrahimKaya\ImageMan\Models\Image;
 use IbrahimKaya\ImageMan\Processors\ImageManipulator;
 
@@ -45,6 +50,12 @@ class ImageManServiceProvider extends ServiceProvider
                 config('imageman'),
                 $app->make(ImageManipulator::class),
             );
+        });
+
+        // Bind the ChunkAssembler as a singleton.
+        // It depends on the 'imageman' ImageManager singleton registered above.
+        $this->app->singleton(ChunkAssembler::class, function ($app) {
+            return new ChunkAssembler($app->make('imageman'));
         });
 
         // Bind the URL generator contract to a concrete implementation based
@@ -86,6 +97,12 @@ class ImageManServiceProvider extends ServiceProvider
             __DIR__ . '/../resources/views/' => resource_path('views/vendor/imageman'),
         ], 'imageman-views');
 
+        // JavaScript chunked uploader helper.
+        $this->publishes([
+            __DIR__ . '/../resources/js/imageman-uploader.js'
+                => public_path('vendor/imageman/imageman-uploader.js'),
+        ], 'imageman-js');
+
         // Load migrations automatically (unless the user has published them).
         $this->loadMigrationsFrom(__DIR__ . '/../database/migrations');
 
@@ -93,7 +110,9 @@ class ImageManServiceProvider extends ServiceProvider
         $this->registerBladeDirectives();
 
         // --- Routes (optional) ---
-        if (config('imageman.register_routes', false)) {
+        // The routes file always registers chunk routes (when chunks.enabled = true)
+        // and optionally registers image-proxy routes (when register_routes = true).
+        if (config('imageman.register_routes', false) || config('imageman.chunks.enabled', true)) {
             $this->loadRoutesFrom(__DIR__ . '/Http/routes.php');
         }
 
@@ -106,8 +125,19 @@ class ImageManServiceProvider extends ServiceProvider
                 RegenerateVariantsCommand::class,
                 CleanOrphanedImagesCommand::class,
                 ConvertToWebpCommand::class,
+                CleanChunksCommand::class,
             ]);
         }
+
+        // --- Event listener: flip ChunkSession status to 'complete' ---
+        // When image processing is queued (assemble_on_queue = true), the session
+        // status is set to 'processing' after dispatch. This listener updates it
+        // to 'complete' once the ImageProcessed event is fired by ProcessImageJob.
+        Event::listen(ImageProcessed::class, function (ImageProcessed $event) {
+            ChunkSession::where('image_id', $event->image->id)
+                ->where('status', 'processing')
+                ->update(['status' => 'complete']);
+        });
     }
 
     /**

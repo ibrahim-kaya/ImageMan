@@ -86,6 +86,18 @@ class ImageUploader
     // --- Validation overrides ---
     protected array $validationOverrides = [];
 
+    /**
+     * When true, the file validation step is completely skipped in save().
+     *
+     * Used by ChunkAssembler after all chunks are assembled: the chunk system
+     * already enforces its own size and MIME-type gates at initiation time, so
+     * running the standard ImageValidator on the assembled file is redundant.
+     *
+     * Not intended for general use — prefer the fluent validation overrides
+     * (maxSize, minWidth, etc.) for per-upload constraint changes.
+     */
+    protected bool $skipValidation = false;
+
     public function __construct(
         protected UploadedFile     $file,
         protected array            $config,
@@ -492,6 +504,19 @@ class ImageUploader
         return $this;
     }
 
+    /**
+     * Skip the file validation step entirely for this upload.
+     *
+     * Intended for internal use by the chunk assembly pipeline, which enforces
+     * its own size/MIME gates at session initiation. Do not use this in
+     * application code unless you are certain the file has been validated upstream.
+     */
+    public function skipValidation(): static
+    {
+        $this->skipValidation = true;
+        return $this;
+    }
+
     // -----------------------------------------------------------------------
     // Terminal action
     // -----------------------------------------------------------------------
@@ -515,12 +540,9 @@ class ImageUploader
     public function save(): Image
     {
         // --- 1. Validate ---
-        $validationRules = array_merge(
-            $this->config['validation'] ?? [],
-            $this->validationOverrides,
-        );
-
-        $this->validator->validate($this->file);
+        if (!$this->skipValidation) {
+            $this->validator->validate($this->file);
+        }
 
         // --- 2. Duplicate detection ---
         if ($this->config['detect_duplicates'] ?? true) {
