@@ -133,6 +133,21 @@ class ChunkAssembler
                 $uploader->meta($session->target_meta);
             }
 
+            // Forward path-customisation options stored at initiation time.
+            // These mirror the fluent ImageUploader methods so the assembled
+            // image lands at exactly the same path as a regular upload would.
+            if ($session->target_directory) {
+                $uploader->inDirectory($session->target_directory);
+            }
+
+            if ($session->target_filename) {
+                $uploader->filename($session->target_filename);
+            }
+
+            if ($session->target_no_uuid) {
+                $uploader->noUuid();
+            }
+
             // Reconstruct the polymorphic model association if provided.
             if ($session->imageable_type && $session->imageable_id) {
                 $modelClass = $session->imageable_type;

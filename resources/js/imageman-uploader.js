@@ -176,6 +176,9 @@
      * @param {string}   [opts.collection='default']         Target image collection.
      * @param {string}   [opts.disk]                         Target storage disk.
      * @param {Object}   [opts.meta]                         Arbitrary image metadata.
+     * @param {string}   [opts.directory]                    Forwarded to ->inDirectory() (custom subdirectory).
+     * @param {string}   [opts.filename]                     Forwarded to ->filename() (custom filename stem).
+     * @param {boolean}  [opts.noUuid=false]                 Forwarded to ->noUuid() (omit UUID subfolder).
      * @param {string}   [opts.imageableType]                Eloquent model FQCN.
      * @param {number}   [opts.imageableId]                  Eloquent model PK.
      * @param {number}   [opts.chunkSize=2097152]            Chunk size in bytes (2 MB).
@@ -194,6 +197,9 @@
         this._collection   = opts.collection   || 'default';
         this._disk         = opts.disk         || null;
         this._meta         = opts.meta         || null;
+        this._directory    = opts.directory    || null;
+        this._filename     = opts.filename     || null;
+        this._noUuid       = opts.noUuid       || false;
         this._imageableType = opts.imageableType || null;
         this._imageableId  = opts.imageableId  || null;
         this._chunkSize    = opts.chunkSize    || DEFAULT_CHUNK_SIZE;
@@ -336,6 +342,9 @@
 
         if (this._disk)          body.disk           = this._disk;
         if (this._meta)          body.meta           = this._meta;
+        if (this._directory)     body.directory      = this._directory;
+        if (this._filename)      body.filename       = this._filename;
+        if (this._noUuid)        body.no_uuid        = true;
         if (this._imageableType) body.imageable_type = this._imageableType;
         if (this._imageableId)   body.imageable_id   = this._imageableId;
 

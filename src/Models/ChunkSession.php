@@ -21,6 +21,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $target_disk
  * @property string      $target_collection
  * @property array|null  $target_meta
+ * @property string|null $target_directory
+ * @property string|null $target_filename
+ * @property bool        $target_no_uuid
  * @property string|null $imageable_type
  * @property int|null    $imageable_id
  * @property string      $status
@@ -47,6 +50,9 @@ class ChunkSession extends Model
         'target_disk',
         'target_collection',
         'target_meta',
+        'target_directory',
+        'target_filename',
+        'target_no_uuid',
         'imageable_type',
         'imageable_id',
         'status',
@@ -62,6 +68,7 @@ class ChunkSession extends Model
         'image_id'        => 'integer',
         'received_chunks' => 'array',
         'target_meta'     => 'array',
+        'target_no_uuid'  => 'boolean',
         'last_chunk_at'   => 'datetime',
     ];
 

@@ -48,6 +48,9 @@ class ChunkUploadController extends Controller
      *   collection      string   optional  Target collection (default: "default")
      *   disk            string   optional  Target storage disk
      *   meta            object   optional  Arbitrary metadata
+     *   directory       string   optional  Forwarded to ->inDirectory() — custom subdirectory
+     *   filename        string   optional  Forwarded to ->filename()    — custom filename stem
+     *   no_uuid         bool     optional  Forwarded to ->noUuid()      — omit UUID subfolder
      *   imageable_type  string   optional  Eloquent model FQCN for polymorphic link
      *   imageable_id    integer  optional  Eloquent model PK for polymorphic link
      *
@@ -74,6 +77,9 @@ class ChunkUploadController extends Controller
             'collection'     => ['sometimes', 'string', 'max:100'],
             'disk'           => ['sometimes', 'string', 'max:50'],
             'meta'           => ['sometimes', 'array'],
+            'directory'      => ['sometimes', 'nullable', 'string', 'max:500'],
+            'filename'       => ['sometimes', 'nullable', 'string', 'max:255'],
+            'no_uuid'        => ['sometimes', 'boolean'],
             'imageable_type' => ['sometimes', 'nullable', 'string', 'max:255'],
             'imageable_id'   => ['sometimes', 'nullable', 'integer'],
         ]);
@@ -96,6 +102,9 @@ class ChunkUploadController extends Controller
             'target_disk'       => $request->input('disk'),
             'target_collection' => $request->input('collection', 'default'),
             'target_meta'       => $request->input('meta'),
+            'target_directory'  => $request->input('directory'),
+            'target_filename'   => $request->input('filename'),
+            'target_no_uuid'    => (bool) $request->input('no_uuid', false),
             'imageable_type'    => $request->input('imageable_type'),
             'imageable_id'      => $request->input('imageable_id') ? (int) $request->input('imageable_id') : null,
             'status'            => 'uploading',
